@@ -1,4 +1,4 @@
-use clap::{builder::NonEmptyStringValueParser, Arg, ArgAction, ArgMatches, Command, ValueHint};
+use clap::{Arg, ArgAction, ArgMatches, Command};
 use std::ffi::OsString;
 
 pub fn get_cli_args<'a, I, T>(args: I) -> ArgMatches
@@ -22,7 +22,16 @@ fn build_command() -> Command {
                 .help("Path to the repo you are wanting to check the test coverage of.")
                 .required(true)
                 .long("repo")
+                .short('r')
                 .value_name("PTH")
+                .action(ArgAction::Set),
+        )
+        .arg(
+            Arg::new("pattern")
+                .help("search term")
+                .long("pat")
+                .short('p')
+                .value_name("pattern")
                 .action(ArgAction::Set),
         )
 }
