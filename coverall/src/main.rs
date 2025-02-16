@@ -1,29 +1,37 @@
-use clap::Parser;
+use std::env;
+use std::result::Result::Ok;
+
+use cli::get_cli_args;
+
 use anyhow::{Context, Result};
-use indicatif::ProgressBar;
+use colored::*;
 
-#[derive(Parser)]
-struct Cli {
-    pattern: String,
-    repo: std::path::PathBuf,
-}
+pub mod cli;
 
-fn main() -> Result<()>{
-    let args = Cli::parse();
-    let pb = ProgressBar::new(100);
+fn run() -> Result<()> {
+    let cli_args = get_cli_args(env::args_os());
+    let repo = cli_args.get_one::<String>("repo").unwrap();
 
-    let content = std::fs::read_to_string(&args.repo)
-        .with_context(|| format!("Error reading `{}`", args.repo.display()))?;
+    let content = std::fs::read_to_string(cli_args.get_one::<String>("repo").unwrap())
+        .with_context(|| format!("Error reading `{}`", repo.red()))?;
 
     let mut iter = 1;
     for line in content.lines() {
-        pb.println(format!("[+] reading line  #{}", iter));
-        if line.contains(&args.pattern) {
-            println!("{}", line);
+        if line.contains("found") {
+            println!("found on line [{}]: {}", iter, line);
         }
         iter += 1;
     }
-    pb.finish_with_message("done");
 
     Ok(())
+}
+
+fn main() {
+    match run() {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("{} {:#}", "Error".red(), e);
+            std::process::exit(1);
+        }
+    }
 }
