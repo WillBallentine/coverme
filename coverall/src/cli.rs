@@ -27,11 +27,11 @@ fn build_command() -> Command {
                 .action(ArgAction::Set),
         )
         .arg(
-            Arg::new("pattern")
-                .help("search term")
-                .long("pat")
-                .short('p')
-                .value_name("pattern")
+            Arg::new("language")
+                .help("language repo is written in")
+                .long("language")
+                .short('l')
+                .value_name("language")
                 .action(ArgAction::Set),
         )
 }

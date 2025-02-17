@@ -1,42 +1,37 @@
 use std::env;
 use std::result::Result::Ok;
 
-use clap::{Arg, ArgMatches};
+use clap::ArgMatches;
 use cli::get_cli_args;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+use codeanalysis::start_analysis;
 use colored::*;
 
 pub mod cli;
+pub mod utils;
+pub mod codeanalysis;
 
-struct Command {
-    repo: String,
-    pattern: String,
-}
 
 fn run() -> Result<()> {
     let cli_args = get_cli_args(env::args_os());
 
     let command = unwrap_command(cli_args);
 
-    let content =
-        std::fs::read_to_string(command.repo).with_context(|| format!("Error reading repo"))?;
-
-    let mut iter = 1;
-    for line in content.lines() {
-        if line.contains(command.pattern.as_str()) {
-            println!("found on line [{}]: {}", iter, line);
-        }
-        iter += 1;
-    }
+    start_analysis(command);
 
     Ok(())
 }
 
-fn unwrap_command(cli_args: ArgMatches) -> Command {
-    Command {
+fn unwrap_command(cli_args: ArgMatches) -> utils::Command {
+    let cmd_lang = cli_args.get_one::<String>("language").unwrap().clone();
+    utils::Command {
         repo: cli_args.get_one::<String>("repo").unwrap().clone(),
-        pattern: cli_args.get_one::<String>("pattern").unwrap().clone(),
+        lang: if cmd_lang == "csharp" {
+            utils::Lang::Csharp
+        } else {
+            utils::Lang::Undefined
+        }
     }
 }
 
