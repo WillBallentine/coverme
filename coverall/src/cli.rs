@@ -23,12 +23,13 @@ fn build_command() -> Command {
                 .required(true)
                 .long("repo")
                 .short('r')
-                .value_name("PTH")
+                .value_name("PATH")
                 .action(ArgAction::Set),
         )
         .arg(
             Arg::new("language")
                 .help("language repo is written in")
+                .required(true)
                 .long("language")
                 .short('l')
                 .value_name("language")
