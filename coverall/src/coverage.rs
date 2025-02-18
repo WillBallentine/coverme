@@ -1,39 +1,31 @@
-use crate::utils::{self, AnalysisData, LangSettings};
+use crate::utils::{AnalysisData, LangSettings};
 
 //eventually want to be able to pipe output to file
 pub fn generage_coverage_report(data: AnalysisData, lang_settings: LangSettings) {
     println!("Test Coverage Report");
     println!("---------------------");
     let mut tested_count = 0;
-    let mut total_lines = 0;
+    let total_methods = data.logic_methods.len();
 
     for method in data.logic_methods {
-        let method_id = {
-            match lang_settings.uses_classes {
-                true => format!("{}.{}", method.class_name, method.method_name),
-                false => method.method_name,
-            }
+        let method_id = if lang_settings.uses_classes {
+            format!("{}.{}", method.class_name, method.method_name)
+        } else {
+            method.method_name.clone()
         };
-        println!("\nMethod: {}", method_id);
 
-        for line in &method.body {
-            let normalized_line = utils::normalize_line(line);
-            if normalized_line.is_empty() || normalized_line == "{" || normalized_line == "}" {
-                continue;
-            }
+        let is_tested = data.tested_methods.contains(&method.method_name);
 
-            total_lines += 1;
-            if data.tested_lines.contains(&normalized_line) {
-                println!("✅ {}", line);
-                tested_count += 1;
-            } else {
-                println!("❌ {}", line);
-            }
+        if is_tested {
+            println!("✅ Method: {}", method_id);
+            tested_count += 1;
+        } else {
+            println!("❌ Method: {}", method_id);
         }
     }
 
-    let coverage = if total_lines > 0 {
-        (tested_count as f64 / total_lines as f64) * 100.0
+    let coverage = if total_methods > 0 {
+        (tested_count as f64 / total_methods as f64) * 100.0
     } else {
         0.0
     };

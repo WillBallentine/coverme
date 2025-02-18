@@ -18,14 +18,14 @@ pub fn start_analysis(repo: utils::Command) {
         );
     }
 
-    let class_methods = extract_class_methods(&repo.repo, &lang_settings);
+    let logic_methods = extract_class_methods(&repo.repo, &lang_settings);
     let test_methods = extract_test_methods(&repo.repo, &lang_settings);
-    let tested_lines = extract_tested_lines(&test_methods);
+    let tested_methods = extract_tested_methods(&test_methods, &logic_methods);
 
     let analysis_data = utils::AnalysisData {
-        logic_methods: class_methods,
+        logic_methods: logic_methods,
         test_methods: test_methods,
-        tested_lines: tested_lines,
+        tested_methods: tested_methods,
     };
 
     coverage::generage_coverage_report(analysis_data, lang_settings);
@@ -105,24 +105,28 @@ fn extract_test_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Meth
                 let mut method_body: Vec<String> = Vec::new();
                 let mut method_name = String::new();
                 let mut in_method = false;
+                let mut in_test = false;
 
                 for line in reader.lines().flatten() {
                     let trimmed_line = line.trim().to_string();
-                    //this line is where it stops working...
-                    if let Some(cap) = lang_settings.regex.get_test_regex().captures(&trimmed_line)
-                    {
-                        println!("{:?}", cap);
-                        if let Some(test_method) = cap.name("test_method") {
-                            method_name = test_method.as_str().to_string();
-                            method_body.clear();
-                            in_method = true;
-                            println!("{}", method_name);
+                    if trimmed_line.contains(&lang_settings.test_pattern) {
+                        in_test = true;
+                        continue;
+                    }
+
+                    if in_test && trimmed_line.starts_with(&lang_settings.test_method_start) {
+                        if let Some(start) = trimmed_line.find(&lang_settings.test_method_start) {
+                            if let Some(end) = trimmed_line[start + 3..].find('(') {
+                                method_name =
+                                    trimmed_line[start + 3..start + 3 + end].trim().to_string();
+                                method_body.clear();
+                                in_method = true;
+                            }
                         }
                     }
 
                     if in_method {
                         method_body.push(trimmed_line.clone());
-                        println!("2nd: {}", trimmed_line)
                     }
 
                     if in_method && trimmed_line.contains("}") {
@@ -137,19 +141,51 @@ fn extract_test_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Meth
             }
         }
     }
-    println!("{:?}", test_methods);
     test_methods
 }
 
-fn extract_tested_lines(test_methods: &[Method]) -> HashSet<String> {
-    let mut tested_lines = HashSet::new();
+fn extract_tested_methods(test_methods: &[Method], logic_methods: &[Method]) -> HashSet<String> {
+    let mut tested_methods = HashSet::new();
+
+    // Create a set of all logic method names for quick lookup
+    let logic_method_names: HashSet<String> = logic_methods
+        .iter()
+        .map(|m| m.method_name.clone())
+        .collect();
+
     for test in test_methods {
         for line in &test.body {
             let normalized_line = utils::normalize_line(line);
-            tested_lines.insert(normalized_line);
+
+            // Skip assertion macros and debugging statements
+            if normalized_line.starts_with("assert")
+                || normalized_line.starts_with("dbg!")
+                || normalized_line.starts_with("println!")
+            {
+                continue;
+            }
+
+            // Check if the line contains a function call
+            if let Some(pos) = normalized_line.find('(') {
+                let before_paren = &normalized_line[..pos].trim();
+
+                // Handle cases where the function is assigned to a variable
+                let called_function = if before_paren.contains('=') {
+                    // Extract function name after '='
+                    before_paren.split('=').last().unwrap().trim().to_string()
+                } else {
+                    before_paren.to_string()
+                };
+
+                // Check if the function being called is a logic method
+                if logic_method_names.contains(&called_function) {
+                    tested_methods.insert(called_function.clone());
+                }
+            }
         }
     }
-    tested_lines
+
+    tested_methods
 }
 
 fn path_exists(repo: &String) -> bool {
@@ -162,11 +198,15 @@ fn create_lang_settings(lang: &Lang) -> LangSettings {
             regex: LangRegex::CSharp(CSharpRegex::new()),
             ext: String::from("cs"),
             uses_classes: true,
+            test_pattern: String::from("[Fact]"),
+            test_method_start: String::from("Public"),
         },
         Lang::Rust => LangSettings {
             regex: LangRegex::Rust(RustRegex::new()),
             ext: String::from("rs"),
             uses_classes: false,
+            test_pattern: String::from("[test]"),
+            test_method_start: String::from("fn"),
         },
         Lang::Python => unimplemented!(),
         Lang::JS => unimplemented!(),
