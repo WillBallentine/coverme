@@ -28,7 +28,7 @@ pub fn start_analysis(repo: utils::Command) {
         tested_methods: tested_methods,
     };
 
-    coverage::generage_coverage_report(analysis_data, lang_settings);
+    coverage::generage_method_level_coverage_report(analysis_data, lang_settings);
 }
 
 fn extract_class_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Method> {

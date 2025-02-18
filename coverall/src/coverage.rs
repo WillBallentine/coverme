@@ -1,7 +1,7 @@
 use crate::utils::{AnalysisData, LangSettings};
 
 //eventually want to be able to pipe output to file
-pub fn generage_coverage_report(data: AnalysisData, lang_settings: LangSettings) {
+pub fn generage_method_level_coverage_report(data: AnalysisData, lang_settings: LangSettings) {
     println!("Test Coverage Report");
     println!("---------------------");
     let mut tested_count = 0;
@@ -29,5 +29,5 @@ pub fn generage_coverage_report(data: AnalysisData, lang_settings: LangSettings)
     } else {
         0.0
     };
-    println!("\nTotal Line Coverage: {:.2}%", coverage);
+    println!("\nTotal Method Coverage: {:.2}%", coverage);
 }
