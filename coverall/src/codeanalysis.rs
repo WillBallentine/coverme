@@ -90,12 +90,14 @@ fn extract_test_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Meth
 
                 for line in reader.lines().flatten() {
                     let trimmed_line = line.trim().to_string();
-                    println!("1st: {}", trimmed_line);
+                    //this line is where it stops working...
                     if let Some(cap) = lang_settings.regex.get_test_regex().captures(&trimmed_line) {
+                        println!("{:?}",cap);
                         if let Some(test_method) = cap.name("test_method") {
                             method_name = test_method.as_str().to_string();
                             method_body.clear();
                             in_method = true;
+                            println!("{}", method_name);
                         }
                     }
 

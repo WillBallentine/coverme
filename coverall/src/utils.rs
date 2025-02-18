@@ -40,7 +40,7 @@ pub struct AnalysisData {
 }
 
 #[derive(Debug)]
-pub struct LangSettings {
+pub struct LangSettings{
     pub regex: LangRegex,
     pub ext: String,
 }
@@ -104,7 +104,7 @@ impl RustRegex {
         Self {
             class_regex: Regex::new(r"fn\s+(?P<name>\w+)\s*\((?P<args>[\s\S]*?)\)\s*(->\s*(?P<return_type>[^{\s]+))?\s*\{").unwrap(),
             method_regex: Regex::new(r"(?m)^(pub\s+)?fn\s+(?P<method_name>\w+)\s*(<[^>]+>)?\s*\((?P<args>[^)]*)\)\s*(->\s*[^ ]+)?\s*\{").unwrap(),
-            test_regex: Regex::new(r"(?m)^\s*#\[\s*test\s*\]\s*fn\s+(?P<test_method>\w+)\s*\(").unwrap(),
+            test_regex: Regex::new(r"#\[\s*test\s*\]\s*(fn\s+(?P<test_method>\w+)\s*\()").unwrap()
         }
     }
 }
