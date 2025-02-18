@@ -34,7 +34,7 @@ pub struct Method {
 pub struct AnalysisData {
     pub logic_methods: Vec<Method>,
     pub test_methods: Vec<Method>,
-    pub tested_lines: HashSet<String>,
+    pub tested_methods: HashSet<String>,
 }
 
 #[derive(Debug)]
@@ -42,6 +42,8 @@ pub struct LangSettings {
     pub regex: LangRegex,
     pub ext: String,
     pub uses_classes: bool,
+    pub test_pattern: String,
+    pub test_method_start: String,
 }
 
 #[derive(Debug)]
