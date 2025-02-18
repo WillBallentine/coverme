@@ -8,9 +8,11 @@ use anyhow::Result;
 use codeanalysis::start_analysis;
 use colored::*;
 
+
 pub mod cli;
 pub mod utils;
 pub mod codeanalysis;
+pub mod coverage;
 
 
 fn run() -> Result<()> {
@@ -29,6 +31,10 @@ fn unwrap_command(cli_args: ArgMatches) -> utils::Command {
         repo: cli_args.get_one::<String>("repo").unwrap().clone(),
         lang: if cmd_lang == "csharp" {
             utils::Lang::Csharp
+        } else if cmd_lang =="python" {
+            utils::Lang::Python
+        } else if cmd_lang == "js" {
+            utils::Lang::JS
         } else {
             utils::Lang::Undefined
         }
