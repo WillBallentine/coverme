@@ -35,6 +35,8 @@ fn unwrap_command(cli_args: ArgMatches) -> utils::Command {
             utils::Lang::Python
         } else if cmd_lang == "js" {
             utils::Lang::JS
+        } else if cmd_lang == "rust" {
+            utils::Lang::Rust
         } else {
             utils::Lang::Undefined
         }
