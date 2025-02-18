@@ -40,21 +40,39 @@ pub struct AnalysisData {
 }
 
 #[derive(Debug)]
-pub struct LangRegex {
-    pub csharp_regex: CSharpRegex,
-    pub rust_regex: RustRegex,
+pub struct LangSettings {
+    pub regex: LangRegex,
+    pub ext: String,
+}
+
+#[derive(Debug)]
+pub enum LangRegex {
+    CSharp(CSharpRegex),
+    Rust(RustRegex),
 }
 
 impl LangRegex {
-    pub fn new() -> Self {
-        Self {
-            csharp_regex: CSharpRegex::new(),
-            rust_regex: RustRegex::new(),
+    pub fn get_class_regex(&self) -> &Regex {
+        match self {
+            LangRegex::CSharp(csharp) => &csharp.class_regex,
+            LangRegex::Rust(rust) => &rust.class_regex,
         }
     }
-    
-}
 
+    pub fn get_method_regex(&self) -> &Regex {
+        match self {
+            LangRegex::CSharp(csharp) => &csharp.method_regex,
+            LangRegex::Rust(rust) => &rust.method_regex,
+        }
+    }
+
+    pub fn get_test_regex(&self) -> &Regex {
+        match self {
+            LangRegex::CSharp(csharp) => &csharp.test_regex,
+            LangRegex::Rust(rust) => &rust.test_regex,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct CSharpRegex {
@@ -67,7 +85,7 @@ impl CSharpRegex {
     pub fn new() -> Self {
         Self {
             class_regex: Regex::new(r"class\s+(?P<class_name>\w+)").unwrap(),
-            method_regex: Regex::new(r"(public|private|protected|internal)\s+(static\s+)?\w\s+(?P<method_name>\w+)\s*\(").unwrap(),
+            method_regex: Regex::new(r"(?m)\b(public|private|protected|internal)?\s*(static)?\s*(\w+)\s+(?P<method_name>\w+)\s*\(").unwrap(),
             test_regex: Regex::new(r"\[Test|Fact\]\s*\n\s*public\s+void\s+(?P<test_method>\w+)\s*\(").unwrap(),
         }
     }
@@ -76,7 +94,7 @@ impl CSharpRegex {
 
 #[derive(Debug)]
 pub struct RustRegex {
-    pub function_regex: Regex,
+    pub class_regex: Regex,
     pub method_regex: Regex,
     pub test_regex: Regex,
 }
@@ -84,8 +102,8 @@ pub struct RustRegex {
 impl RustRegex {
     pub fn new() -> Self {
         Self {
-            function_regex: Regex::new(r"fn\s+(?P<name>\w+)\s*\((?P<args>[^)]*)\)\s*(->\s*(?P<return_type>[^{\s]+))?\s*\{").unwrap(),
-            method_regex: Regex::new(r"fn\s+(?P<name>\w+)\s*\((?P<args>[^)]*)\)\s*(->\s*(?P<return_type>[^{\s]+))?\s*\{").unwrap(),
+            class_regex: Regex::new(r"fn\s+(?P<name>\w+)\s*\((?P<args>[\s\S]*?)\)\s*(->\s*(?P<return_type>[^{\s]+))?\s*\{").unwrap(),
+            method_regex: Regex::new(r"(?m)^(pub\s+)?fn\s+(?P<method_name>\w+)\s*(<[^>]+>)?\s*\((?P<args>[^)]*)\)\s*(->\s*[^ ]+)?\s*\{").unwrap(),
             test_regex: Regex::new(r"#\[test\]\s*pub\s+fn\s+(?P<test_name>\w+)\s*\(\)\s*\{").unwrap(),
         }
     }
