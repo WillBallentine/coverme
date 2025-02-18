@@ -18,7 +18,7 @@ pub fn start_analysis(repo: utils::Command) {
         );
     }
 
-    let logic_methods = extract_class_methods(&repo.repo, &lang_settings);
+    let logic_methods = extract_logic_methods(&repo.repo, &lang_settings);
     let test_methods = extract_test_methods(&repo.repo, &lang_settings);
     let tested_methods = extract_tested_methods(&test_methods, &logic_methods);
 
@@ -31,7 +31,7 @@ pub fn start_analysis(repo: utils::Command) {
     coverage::generage_method_level_coverage_report(analysis_data, lang_settings);
 }
 
-fn extract_class_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Method> {
+fn extract_logic_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Method> {
     let mut methods: Vec<utils::Method> = Vec::new();
 
     for entry in WalkDir::new(repo).into_iter().filter_map(Result::ok) {
@@ -46,9 +46,13 @@ fn extract_class_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Met
                 let mut in_method = false;
                 let mut method_body: Vec<String> = Vec::new();
                 let mut method_name = String::new();
+                let mut is_test = false;
 
                 for line in reader.lines().flatten() {
                     let trimmed_line = line.trim().to_string();
+                    if trimmed_line.contains(&lang_settings.test_pattern) {
+                        is_test = true;
+                    }
                     if lang_settings.uses_classes {
                         if let Some(cap) = lang_settings
                             .regex
@@ -76,13 +80,14 @@ fn extract_class_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Met
                         method_body.push(trimmed_line.clone());
                     }
 
-                    if in_method && trimmed_line.contains("}") {
+                    if in_method && trimmed_line.contains("}") && !is_test {
                         methods.push(Method {
                             class_name: current_class.clone(),
                             method_name: method_name.clone(),
                             body: method_body.clone(),
                         });
                         in_method = false;
+                        is_test = false;
                     }
                 }
             }
