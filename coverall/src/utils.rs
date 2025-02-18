@@ -104,11 +104,44 @@ impl RustRegex {
         Self {
             class_regex: Regex::new(r"fn\s+(?P<name>\w+)\s*\((?P<args>[\s\S]*?)\)\s*(->\s*(?P<return_type>[^{\s]+))?\s*\{").unwrap(),
             method_regex: Regex::new(r"(?m)^(pub\s+)?fn\s+(?P<method_name>\w+)\s*(<[^>]+>)?\s*\((?P<args>[^)]*)\)\s*(->\s*[^ ]+)?\s*\{").unwrap(),
-            test_regex: Regex::new(r"#\[test\]\s*pub\s+fn\s+(?P<test_name>\w+)\s*\(\)\s*\{").unwrap(),
+            test_regex: Regex::new(r"(?m)^\s*#\[\s*test\s*\]\s*fn\s+(?P<test_method>\w+)\s*\(").unwrap(),
         }
     }
 }
 
 pub fn normalize_line(line: &str) -> String {
     line.replace(" ", "").replace("\t", "")
+}
+
+#[test]
+fn test_normalize_line() {
+    // Test case 1: Line with spaces and tabs
+    let input = "This is \t a test  line.";
+    let expected = "Thisisatestline."; // Expecting all spaces and tabs removed
+    let result = normalize_line(input);
+    assert_eq!(result, expected);
+
+    // Test case 2: Line with only spaces
+    let input = "This is a line with spaces.";
+    let expected = "Thisisalinewithspaces."; // Expecting spaces removed
+    let result = normalize_line(input);
+    assert_eq!(result, expected);
+
+    // Test case 3: Line with only tabs
+    let input = "This\tis\ta\tline\twith\ttabs.";
+    let expected = "Thisisalinewithtabs."; // Expecting tabs removed
+    let result = normalize_line(input);
+    assert_eq!(result, expected);
+
+    // Test case 4: Line with no spaces or tabs
+    let input = "Thisisacleanline.";
+    let expected = "Thisisacleanline."; // No changes expected
+    let result = normalize_line(input);
+    assert_eq!(result, expected);
+
+    // Test case 5: Empty line
+    let input = "";
+    let expected = ""; // An empty string should return an empty string
+    let result = normalize_line(input);
+    assert_eq!(result, expected);
 }

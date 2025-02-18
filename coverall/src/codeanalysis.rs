@@ -26,7 +26,6 @@ pub fn start_analysis(repo: utils::Command) {
         tested_lines: tested_lines,
     };
 
-
     coverage::generage_coverage_report(analysis_data);
 }
 
@@ -82,7 +81,7 @@ fn extract_test_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Meth
     let mut test_methods: Vec<Method> = Vec::new();
 
     for entry in WalkDir::new(repo).into_iter().filter_map(Result::ok) {
-        if entry.path().extension().map_or(false, |ext| *ext == *lang_settings.ext) && entry.path().file_name().map_or(false, |name| name.to_string_lossy().contains("Test")) {
+        if entry.path().extension().map_or(false, |ext| *ext == *lang_settings.ext){
             if let Ok(file) = File::open(entry.path()) {
                 let reader = io::BufReader::new(file);
                 let mut method_body: Vec<String> = Vec::new();
@@ -91,6 +90,7 @@ fn extract_test_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Meth
 
                 for line in reader.lines().flatten() {
                     let trimmed_line = line.trim().to_string();
+                    println!("1st: {}", trimmed_line);
                     if let Some(cap) = lang_settings.regex.get_test_regex().captures(&trimmed_line) {
                         if let Some(test_method) = cap.name("test_method") {
                             method_name = test_method.as_str().to_string();
@@ -101,6 +101,7 @@ fn extract_test_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Meth
 
                     if in_method {
                         method_body.push(trimmed_line.clone());
+                        println!("2nd: {}", trimmed_line)
                     }
 
                     if in_method && trimmed_line.contains("}") {
@@ -115,6 +116,7 @@ fn extract_test_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Meth
             }
         }
     }
+    println!("{:?}", test_methods);
     test_methods
 }
 
