@@ -1,19 +1,21 @@
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 use walkdir::WalkDir;
-use std::collections::HashSet;
 
-use crate::utils::{self, CSharpRegex, Lang, LangRegex, LangSettings, Method, RustRegex};
 use crate::coverage;
+use crate::utils::{self, CSharpRegex, Lang, LangRegex, LangSettings, Method, RustRegex};
 
 pub fn start_analysis(repo: utils::Command) {
-    
     let lang_settings = create_lang_settings(&repo.lang);
 
     //eventually I want to return a custom error but panicing will work for now
     if !path_exists(&repo.repo) {
-        panic!("{} does not exist. Please check your data is correct.", &repo.repo);
+        panic!(
+            "{} does not exist. Please check your data is correct.",
+            &repo.repo
+        );
     }
 
     let class_methods = extract_class_methods(&repo.repo, &lang_settings);
@@ -26,15 +28,18 @@ pub fn start_analysis(repo: utils::Command) {
         tested_lines: tested_lines,
     };
 
-    coverage::generage_coverage_report(analysis_data);
+    coverage::generage_coverage_report(analysis_data, lang_settings);
 }
 
 fn extract_class_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Method> {
     let mut methods: Vec<utils::Method> = Vec::new();
 
-
     for entry in WalkDir::new(repo).into_iter().filter_map(Result::ok) {
-        if entry.path().extension().map_or(false, |ext| *ext == *lang_settings.ext) {
+        if entry
+            .path()
+            .extension()
+            .map_or(false, |ext| *ext == *lang_settings.ext)
+        {
             if let Ok(file) = File::open(entry.path()) {
                 let reader = io::BufReader::new(file);
                 let mut current_class = String::new();
@@ -44,13 +49,22 @@ fn extract_class_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Met
 
                 for line in reader.lines().flatten() {
                     let trimmed_line = line.trim().to_string();
-                    if let Some(cap) = lang_settings.regex.get_class_regex().captures(&trimmed_line) {
-                        if let Some(class_match) = cap.name("class_name") {
-                            current_class = class_match.as_str().to_string();
+                    if lang_settings.uses_classes {
+                        if let Some(cap) = lang_settings
+                            .regex
+                            .get_class_regex()
+                            .captures(&trimmed_line)
+                        {
+                            if let Some(class_match) = cap.name("class_name") {
+                                current_class = class_match.as_str().to_string();
+                            }
                         }
                     }
-
-                    if let Some(cap) = lang_settings.regex.get_method_regex().captures(&trimmed_line) {
+                    if let Some(cap) = lang_settings
+                        .regex
+                        .get_method_regex()
+                        .captures(&trimmed_line)
+                    {
                         if let Some(method_match) = cap.name("method_name") {
                             method_name = method_match.as_str().to_string();
                             method_body.clear();
@@ -63,7 +77,7 @@ fn extract_class_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Met
                     }
 
                     if in_method && trimmed_line.contains("}") {
-                        methods.push(Method{
+                        methods.push(Method {
                             class_name: current_class.clone(),
                             method_name: method_name.clone(),
                             body: method_body.clone(),
@@ -81,7 +95,11 @@ fn extract_test_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Meth
     let mut test_methods: Vec<Method> = Vec::new();
 
     for entry in WalkDir::new(repo).into_iter().filter_map(Result::ok) {
-        if entry.path().extension().map_or(false, |ext| *ext == *lang_settings.ext){
+        if entry
+            .path()
+            .extension()
+            .map_or(false, |ext| *ext == *lang_settings.ext)
+        {
             if let Ok(file) = File::open(entry.path()) {
                 let reader = io::BufReader::new(file);
                 let mut method_body: Vec<String> = Vec::new();
@@ -91,8 +109,9 @@ fn extract_test_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Meth
                 for line in reader.lines().flatten() {
                     let trimmed_line = line.trim().to_string();
                     //this line is where it stops working...
-                    if let Some(cap) = lang_settings.regex.get_test_regex().captures(&trimmed_line) {
-                        println!("{:?}",cap);
+                    if let Some(cap) = lang_settings.regex.get_test_regex().captures(&trimmed_line)
+                    {
+                        println!("{:?}", cap);
                         if let Some(test_method) = cap.name("test_method") {
                             method_name = test_method.as_str().to_string();
                             method_body.clear();
@@ -142,10 +161,12 @@ fn create_lang_settings(lang: &Lang) -> LangSettings {
         Lang::Csharp => LangSettings {
             regex: LangRegex::CSharp(CSharpRegex::new()),
             ext: String::from("cs"),
+            uses_classes: true,
         },
         Lang::Rust => LangSettings {
             regex: LangRegex::Rust(RustRegex::new()),
             ext: String::from("rs"),
+            uses_classes: false,
         },
         Lang::Python => unimplemented!(),
         Lang::JS => unimplemented!(),

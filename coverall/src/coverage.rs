@@ -1,14 +1,19 @@
-use crate::utils::{self, AnalysisData};
+use crate::utils::{self, AnalysisData, LangSettings};
 
 //eventually want to be able to pipe output to file
-pub fn generage_coverage_report(data: AnalysisData){
+pub fn generage_coverage_report(data: AnalysisData, lang_settings: LangSettings) {
     println!("Test Coverage Report");
     println!("---------------------");
     let mut tested_count = 0;
     let mut total_lines = 0;
 
     for method in data.logic_methods {
-        let method_id = format!("{}.{}", method.class_name, method.method_name);
+        let method_id = {
+            match lang_settings.uses_classes {
+                true => format!("{}.{}", method.class_name, method.method_name),
+                false => method.method_name,
+            }
+        };
         println!("\nMethod: {}", method_id);
 
         for line in &method.body {

@@ -1,7 +1,6 @@
 use regex::Regex;
 use std::collections::HashSet;
 
-
 #[derive(Debug)]
 pub struct Command {
     pub repo: String,
@@ -17,7 +16,6 @@ pub enum Lang {
     Undefined,
 }
 
-
 //eventually I want this to carry data like file name, line number, etc
 #[derive(Debug)]
 pub struct Method {
@@ -27,11 +25,11 @@ pub struct Method {
 }
 
 // pub struct Line {
-    //     pub number: i32,
-    //     pub file_name: String,
-    //     pub tested: bool,
-    // }
-    
+//     pub number: i32,
+//     pub file_name: String,
+//     pub tested: bool,
+// }
+
 #[derive(Debug)]
 pub struct AnalysisData {
     pub logic_methods: Vec<Method>,
@@ -40,9 +38,10 @@ pub struct AnalysisData {
 }
 
 #[derive(Debug)]
-pub struct LangSettings{
+pub struct LangSettings {
     pub regex: LangRegex,
     pub ext: String,
+    pub uses_classes: bool,
 }
 
 #[derive(Debug)]
@@ -55,7 +54,7 @@ impl LangRegex {
     pub fn get_class_regex(&self) -> &Regex {
         match self {
             LangRegex::CSharp(csharp) => &csharp.class_regex,
-            LangRegex::Rust(rust) => &rust.class_regex,
+            LangRegex::Rust(rust) => &rust.method_regex,
         }
     }
 
@@ -89,12 +88,10 @@ impl CSharpRegex {
             test_regex: Regex::new(r"\[Test|Fact\]\s*\n\s*public\s+void\s+(?P<test_method>\w+)\s*\(").unwrap(),
         }
     }
-    
 }
 
 #[derive(Debug)]
 pub struct RustRegex {
-    pub class_regex: Regex,
     pub method_regex: Regex,
     pub test_regex: Regex,
 }
@@ -102,7 +99,6 @@ pub struct RustRegex {
 impl RustRegex {
     pub fn new() -> Self {
         Self {
-            class_regex: Regex::new(r"fn\s+(?P<name>\w+)\s*\((?P<args>[\s\S]*?)\)\s*(->\s*(?P<return_type>[^{\s]+))?\s*\{").unwrap(),
             method_regex: Regex::new(r"(?m)^(pub\s+)?fn\s+(?P<method_name>\w+)\s*(<[^>]+>)?\s*\((?P<args>[^)]*)\)\s*(->\s*[^ ]+)?\s*\{").unwrap(),
             test_regex: Regex::new(r"#\[\s*test\s*\]\s*(fn\s+(?P<test_method>\w+)\s*\()").unwrap()
         }
