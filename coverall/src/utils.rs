@@ -1,5 +1,10 @@
 use regex::Regex;
 use std::collections::HashSet;
+use tree_sitter::Parser;
+use tree_sitter_c_sharp;
+use tree_sitter_javascript;
+use tree_sitter_python;
+use tree_sitter_rust;
 
 #[derive(Debug)]
 pub struct Command {
@@ -109,6 +114,26 @@ impl RustRegex {
 
 pub fn normalize_line(line: &str) -> String {
     line.replace(" ", "").replace("\t", "")
+}
+
+pub fn get_parser(lang: &str) -> Parser {
+    let mut parser = Parser::new();
+    match lang {
+        "rs" => parser
+            .set_language(&tree_sitter_rust::LANGUAGE.into())
+            .unwrap(),
+        "py" => parser
+            .set_language(&tree_sitter_python::LANGUAGE.into())
+            .unwrap(),
+        "js" => parser
+            .set_language(&tree_sitter_javascript::LANGUAGE.into())
+            .unwrap(),
+        "cs" => parser
+            .set_language(&tree_sitter_c_sharp::LANGUAGE.into())
+            .unwrap(),
+        _ => panic!("Unsupported language: {}", lang),
+    }
+    parser
 }
 
 #[test]
