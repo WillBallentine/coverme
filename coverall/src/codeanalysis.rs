@@ -55,6 +55,9 @@ fn extract_logic_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Met
                     let mut cursor = root_node.walk();
 
                     for node in root_node.children(&mut cursor) {
+                        if is_test_method(&node, &source_code, lang_settings) {
+                            continue;
+                        }
                         if node.kind() == "function_item" || node.kind() == "method_declaration" {
                             let class_name = if lang_settings.uses_classes {
                                 find_class_name(&node, &source_code)
