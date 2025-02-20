@@ -2,6 +2,14 @@
 name = "coverall"
 version = "0.1.0"
 edition = "2021"
+authors = ["Will Ballentine <willh.ballentine@gmail.com>"]
+license = "MIT"
+description = "A tool to analyze local code repositories for test coverage"
+readme = "README.md"
+homepage = "https://github.com/WillBallentine/coverall"
+repository = "https://github.com/WillBallentine/coverall"
+keywords = ["cli", "code coverage", "testing", "local"]
+categories = ["command-line-utilities"]
 
 [dev-dependencies]
 tempfile = "3"
