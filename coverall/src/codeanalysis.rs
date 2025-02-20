@@ -5,9 +5,7 @@ use std::path::Path;
 use walkdir::WalkDir;
 
 use crate::coverage;
-use crate::utils::{
-    self, get_parser, CSharpRegex, Lang, LangRegex, LangSettings, Method, RustRegex,
-};
+use crate::utils::{self, get_parser, Lang, LangSettings, Method};
 
 pub fn start_analysis(repo: utils::Command) {
     let lang_settings = create_lang_settings(&repo.lang);
@@ -167,8 +165,33 @@ fn extract_tested_methods(test_methods: &[Method], logic_methods: &[Method]) -> 
     for test in test_methods {
         for line in &test.body {
             let normalized_line = utils::normalize_line(line);
-            if normalized_line.starts_with("assert") || normalized_line.starts_with("dbg!") {
-                continue;
+
+            if let Some(start) = normalized_line.find('!') {
+                let macro_name = &normalized_line[..start];
+
+                if ["assert", "assert_eq", "assert_ne", "assert_matches"].contains(&macro_name) {
+                    // Extract arguments inside the macro
+                    if let Some(args_start) = normalized_line.find('(') {
+                        if let Some(args_end) = normalized_line.rfind(')') {
+                            let args = &normalized_line[args_start + 1..args_end];
+
+                            // Split arguments by comma and check each one for function calls
+                            for arg in args.split(',') {
+                                let called_function = arg
+                                    .trim()
+                                    .split('(')
+                                    .next()
+                                    .unwrap_or("")
+                                    .trim()
+                                    .to_string();
+
+                                if logic_method_names.contains(&called_function) {
+                                    tested_methods.insert(called_function.clone());
+                                }
+                            }
+                        }
+                    }
+                }
             }
             if let Some(pos) = normalized_line.find('(') {
                 let before_paren = &normalized_line[..pos].trim();
@@ -247,14 +270,12 @@ fn path_exists(repo: &String) -> bool {
 fn create_lang_settings(lang: &Lang) -> LangSettings {
     match lang {
         Lang::Csharp => LangSettings {
-            regex: LangRegex::CSharp(CSharpRegex::new()),
             ext: String::from("cs"),
             uses_classes: true,
             test_pattern: String::from("[Fact]"),
             test_method_start: String::from("Public"),
         },
         Lang::Rust => LangSettings {
-            regex: LangRegex::Rust(RustRegex::new()),
             ext: String::from("rs"),
             uses_classes: false,
             test_pattern: String::from("[test]"),
@@ -264,4 +285,369 @@ fn create_lang_settings(lang: &Lang) -> LangSettings {
         Lang::JS => unimplemented!(),
         Lang::Undefined => unimplemented!(),
     }
+}
+
+#[test]
+fn test_create_lang_settings_rust() {
+    let result = create_lang_settings(&Lang::Rust);
+    let expected = LangSettings {
+        ext: String::from("rs"),
+        uses_classes: false,
+        test_pattern: String::from("[test]"),
+        test_method_start: String::from("fn"),
+    };
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_path_exists_existing_path() {
+    use std::fs::{self};
+
+    let repo = String::from("tests/existing_dir");
+    fs::create_dir_all(&repo).expect("Failed to create test dir");
+    assert!(path_exists(&repo));
+    fs::remove_dir_all(&repo).expect("Failed to clean up test repo");
+}
+
+#[test]
+fn test_path_exists_non_existing_path() {
+    let repo = String::from("tests/non_existing_dir");
+    assert!(!path_exists(&repo));
+}
+
+#[test]
+fn test_extract_method_body() {
+    let source_code = r#"
+    fn example_function(x: i32) -> i32 {
+        let y = x + 1;
+        println!("Inside function");
+        y
+    }
+"#;
+
+    let expected_body: Vec<String> = vec!["let y = x + 1;", "println!(\"Inside function\");", "y"]
+        .into_iter()
+        .map(|s| s.to_string()) // Ensure it's `String`
+        .collect();
+
+    let mut parser = get_parser("rs");
+
+    let tree = parser
+        .parse(source_code, None)
+        .expect("failed to parse test");
+    let root_node = tree.root_node();
+
+    let mut cursor = root_node.walk();
+    let mut extracted_body = Vec::new();
+
+    for node in root_node.children(&mut cursor) {
+        if node.kind() == "function_item" {
+            let mut raw_body = extract_method_body(&node, source_code);
+
+            // Trim braces `{}` if included
+            if raw_body.first().map(|s| s.trim()) == Some("{") {
+                raw_body.remove(0);
+            }
+            if raw_body.last().map(|s| s.trim()) == Some("}") {
+                raw_body.pop();
+            }
+
+            // **Trim all lines to remove leading/trailing spaces**
+            extracted_body = raw_body.into_iter().map(|s| s.trim().to_string()).collect();
+        }
+    }
+
+    assert_eq!(extracted_body, expected_body);
+}
+
+#[test]
+fn test_extract_method_name() {
+    let source_code = "fn my_function() { println!(\"Hello\"); }";
+    let mut parser = get_parser("rs");
+    let tree = parser
+        .parse(source_code, None)
+        .expect("failed to parse test");
+    let root_node = tree.root_node();
+
+    let mut cursor = root_node.walk();
+    let function_node = root_node
+        .children(&mut cursor)
+        .find(|n| n.kind() == "function_item")
+        .unwrap();
+    let method_name = extract_method_name(&function_node, source_code);
+
+    assert_eq!(method_name, "my_function");
+}
+
+#[test]
+fn test_extract_logic_methods() {
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    // Create a temporary directory
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let file_path = temp_dir.path().join("example.rs");
+
+    // Write mock Rust code to the temp file
+    let mut file = File::create(&file_path).expect("Failed to create temp file");
+    writeln!(
+        file,
+        r#"
+        fn example_function() {{
+            let x = 5;
+            println!("Example function: {{}}", x);
+        }}
+
+        fn another_function() -> i32 {{
+            42
+        }}
+        "#
+    )
+    .expect("Failed to write to temp file");
+
+    // Run function on temp directory path
+    let lang_settings = create_lang_settings(&Lang::Rust);
+    let methods = extract_logic_methods(
+        &temp_dir.path().to_string_lossy().to_string(),
+        &lang_settings,
+    );
+
+    // Verify results
+    assert_eq!(methods.len(), 2);
+    assert_eq!(methods[0].method_name, "example_function");
+    assert_eq!(methods[1].method_name, "another_function");
+}
+
+#[test]
+fn test_extract_test_methods() {
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    // Create a temporary directory
+    let temp_dir = tempdir().expect("Failed to create temp directory");
+    let file_path = temp_dir.path().join("example.rs");
+
+    // Write mock Rust code to the temp file
+    let mut file = File::create(&file_path).expect("Failed to create temp file");
+    writeln!(
+        file,
+        r#"
+        #[test]
+        fn example_function() {{
+            let x = 5;
+            println!("Example function: {{}}", x);
+        }}
+
+        #[test]
+        fn another_function() -> i32 {{
+            42
+        }}
+        "#
+    )
+    .expect("Failed to write to temp file");
+
+    // Run function on temp directory path
+    let lang_settings = create_lang_settings(&Lang::Rust);
+    let methods = extract_test_methods(
+        &temp_dir.path().to_string_lossy().to_string(),
+        &lang_settings,
+    );
+
+    // Verify results
+    assert_eq!(methods.len(), 2);
+    assert_eq!(methods[0].method_name, "example_function");
+    assert_eq!(methods[1].method_name, "another_function");
+}
+
+#[test]
+fn test_extract_tested_methods() {
+    let logic_methods = vec![
+        Method {
+            class_name: "".to_string(),
+            method_name: "example_function".to_string(),
+            body: vec![],
+        },
+        Method {
+            class_name: "".to_string(),
+            method_name: "another_function".to_string(),
+            body: vec![],
+        },
+    ];
+
+    let test_methods = vec![Method {
+        class_name: "Test".to_string(),
+        method_name: "test_example_function".to_string(),
+        body: vec!["example_function();".to_string()],
+    }];
+
+    let tested_methods = extract_tested_methods(&test_methods, &logic_methods);
+    let expected: HashSet<String> = ["example_function".to_string()].into_iter().collect();
+
+    assert_eq!(tested_methods, expected);
+}
+
+#[test]
+fn test_is_test_method() {
+    let source_code = r#"
+        #[test]
+        fn sample_test() {
+            assert_eq!(2 + 2, 4);
+        }
+
+        fn not_a_test() {
+            let x = 5;
+        }
+    "#;
+    let mut parser = get_parser("rs");
+
+    let tree = parser
+        .parse(source_code, None)
+        .expect("Failed to parse test");
+    let root_node = tree.root_node();
+    let mut cursor = root_node.walk();
+
+    let lang_settings = create_lang_settings(&Lang::Rust);
+
+    let mut test_found = false;
+    let mut non_test_found = false;
+
+    for node in root_node.children(&mut cursor) {
+        if node.kind() == "function_item" {
+            let result = is_test_method(&node, source_code, &lang_settings);
+            let function_name = &source_code[node.start_byte()..node.end_byte()];
+
+            if function_name.contains("sample_test") {
+                test_found = result;
+            } else if function_name.contains("not_a_test") {
+                non_test_found = result;
+            }
+        }
+    }
+
+    assert!(
+        test_found,
+        "Expected 'sample_test' to be recognized as a test."
+    );
+    assert!(
+        !non_test_found,
+        "Expected 'not_a_test' to not be recognized as a test."
+    );
+}
+
+#[test]
+fn test_extract_body() {
+    let source_code = r#"
+        fn example_function() {
+            let x = 5;
+            println!("{}", x);
+        }
+    "#;
+    let mut parser = get_parser("rs");
+
+    let tree = parser
+        .parse(source_code, None)
+        .expect("Failed to parse test");
+    let root_node = tree.root_node();
+    let mut cursor = root_node.walk();
+
+    let mut function_node = None;
+
+    for node in root_node.children(&mut cursor) {
+        if node.kind() == "function_item" {
+            function_node = Some(node);
+            break;
+        }
+    }
+
+    assert!(function_node.is_some(), "Failed to find function node.");
+
+    let extracted_body: Vec<String> = extract_body(function_node.unwrap(), source_code)
+        .iter()
+        .map(|line| line.trim().to_string()) // Normalize by trimming whitespace
+        .collect();
+
+    let expected_body = vec![
+        "fn example_function() {".to_string(),
+        "let x = 5;".to_string(),
+        "println!(\"{}\", x);".to_string(),
+        "}".to_string(),
+    ];
+
+    assert_eq!(
+        extracted_body, expected_body,
+        "Extracted body does not match expected."
+    );
+}
+
+#[test]
+fn test_read_to_string_buffered() {
+    use std::fs::{self, File};
+    use std::io::BufReader;
+    use std::io::{BufWriter, Write};
+    use tempfile::NamedTempFile;
+
+    // Create a temporary file
+    let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+    let file_path = temp_file.path().to_path_buf();
+
+    // Write some content to the file
+    {
+        let mut writer = BufWriter::new(File::create(&file_path).expect("Failed to create file"));
+        writeln!(writer, "Hello, world!").unwrap();
+        writeln!(writer, "This is a test file.").unwrap();
+        writeln!(writer, "Buffered reading is useful.").unwrap();
+    }
+
+    // Read the file using BufReader
+    let file = File::open(&file_path).expect("Failed to open file");
+    let reader = BufReader::new(file);
+    let result = read_to_string_buffered(reader);
+
+    // Expected output
+    let expected = "Hello, world!\nThis is a test file.\nBuffered reading is useful.\n";
+
+    // Cleanup
+    fs::remove_file(file_path).expect("Failed to delete temp file");
+
+    // Assert the result
+    assert_eq!(
+        result, expected,
+        "Buffered read did not match expected output."
+    );
+}
+
+#[test]
+fn test_start_analysis_valid_repo() {
+    use std::fs::{create_dir_all, File};
+    use std::io::Write;
+    use tempfile::tempdir;
+    use utils::Command;
+
+    let temp_dir = tempdir().expect("Failed to create temp dir");
+    let repo_path = temp_dir.path().join("repo");
+    create_dir_all(&repo_path).expect("Failed to create test repo");
+
+    // Create a mock Rust source file
+    let file_path = repo_path.join("main.rs");
+    let mut file = File::create(&file_path).expect("Failed to create test file");
+    writeln!(
+        file,
+        "fn example_function() {{ println!(\"Hello, world!\"); }}"
+    )
+    .unwrap();
+
+    let mock_repo = Command {
+        repo: repo_path.to_str().unwrap().to_string(),
+        lang: Lang::Rust,
+    };
+
+    // Redirect output to avoid cluttering the test logs
+    let _ = std::io::stdout().lock();
+
+    start_analysis(mock_repo);
+
+    // If we reach this point, the function didn't panic, meaning it handled the input correctly.
+    assert!(true);
 }
