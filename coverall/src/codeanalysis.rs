@@ -1,11 +1,10 @@
 use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
-use std::path::Path;
 use walkdir::WalkDir;
 
 use crate::coverage;
-use crate::utils::{self, get_parser, Lang, LangSettings, Method};
+use crate::utils::{self, create_lang_settings, get_parser, path_exists, Lang, LangSettings, Method};
 
 pub fn start_analysis(repo: utils::Command) {
     let lang_settings = create_lang_settings(&repo.lang);
@@ -18,12 +17,22 @@ pub fn start_analysis(repo: utils::Command) {
         );
     }
 
-    let logic_methods = extract_logic_methods(&repo.repo, &lang_settings);
-    let test_methods = extract_test_methods(&repo.repo, &lang_settings);
-    let tested_methods = extract_tested_methods(&test_methods, &logic_methods);
+    let logic_methods = match repo.lang {
+        Lang::Rust => extract_logic_methods_rust(&repo.repo, &lang_settings),
+        Lang::Csharp => extract_logic_methods_csharp(&repo.repo, &lang_settings),
+        Lang::JS => unimplemented!(),
+        Lang::Python => unimplemented!(),
+        Lang::Undefined => unimplemented!(),
+    };
 
-    // println!("{:?}", test_methods);
-    // println!("{:?}", tested_methods);
+    let test_methods = match repo.lang {
+        Lang::Rust => extract_test_methods_rust(&repo.repo, &lang_settings),
+        Lang::Csharp => extract_test_methods_csharp(&repo.repo, &lang_settings),
+        Lang::JS => unimplemented!(),
+        Lang::Python => unimplemented!(),
+        Lang::Undefined => unimplemented!(),
+    };
+    let tested_methods = extract_tested_methods_rust(&test_methods, &logic_methods);
 
     let analysis_data = utils::AnalysisData {
         logic_methods: logic_methods,
@@ -34,7 +43,7 @@ pub fn start_analysis(repo: utils::Command) {
     coverage::generate_method_level_coverage_report(analysis_data, &lang_settings);
 }
 
-fn extract_logic_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Method> {
+fn extract_logic_methods_rust(repo: &String, lang_settings: &LangSettings) -> Vec<Method> {
     let mut methods = Vec::new();
     let mut parser = get_parser(&lang_settings.ext);
 
@@ -81,6 +90,64 @@ fn extract_logic_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Met
     methods
 }
 
+fn extract_logic_methods_csharp(repo: &String, lang_settings: &LangSettings) -> Vec<Method> {
+    let mut methods = Vec::new();
+    let mut parser = get_parser(&lang_settings.ext);
+
+    for entry in WalkDir::new(repo).into_iter().filter_map(Result::ok) {
+        if entry
+            .path()
+            .extension()
+            .map_or(false, |ext| *ext == *lang_settings.ext)
+        {
+            if let Ok(file) = File::open(entry.path()) {
+                let reader = BufReader::new(file);
+                let source_code = read_to_string_buffered(reader);
+
+                if let Some(tree) = parser.parse(&source_code, None) {
+                    let root_node = tree.root_node();
+                    let mut cursor = root_node.walk();
+
+                    // Recursively search for methods
+                    find_methods_recursively(root_node, &mut methods, &source_code, lang_settings);
+                }
+            }
+        }
+    }
+    methods
+}
+
+fn find_methods_recursively(node: tree_sitter::Node, methods: &mut Vec<Method>, source_code: &str, lang_settings: &LangSettings) {
+    let mut cursor = node.walk();
+
+    for child in node.children(&mut cursor) {
+        if is_test_method(&child, source_code, lang_settings) {
+            continue;
+        }
+
+        if child.kind() == "method_declaration" {
+            let class_name = if lang_settings.uses_classes {
+                find_class_name(&node, source_code)
+            } else {
+                String::new()
+            };
+
+            if let Some(identifier) = child.child_by_field_name("name") {
+                let method_name = source_code[identifier.start_byte()..identifier.end_byte()]
+                    .to_string();
+                methods.push(Method {
+                    class_name,
+                    method_name,
+                    body: extract_body(child, &source_code),
+                });
+            }
+        } else {
+            // Recursively check deeper nodes
+            find_methods_recursively(child, methods, source_code, lang_settings);
+        }
+    }
+}
+
 fn read_to_string_buffered(reader: BufReader<File>) -> String {
     let mut source_code = String::new();
     for line in reader.lines().flatten() {
@@ -93,12 +160,15 @@ fn read_to_string_buffered(reader: BufReader<File>) -> String {
 
 fn find_class_name(node: &tree_sitter::Node, source: &str) -> String {
     let _cursor = node.walk();
-    node.parent().map_or(String::new(), |parent| {
+    node.parent().and_then(|parent| {
         if parent.kind() == "class_declaration" {
-            source[parent.start_byte()..parent.end_byte()].to_string()
+            parent.child_by_field_name("name")
         } else {
-            String::new()
+            None
         }
+    })
+    .map_or(String::new(), |name_node|{
+        source[name_node.start_byte()..name_node.end_byte()].to_string()
     })
 }
 
@@ -110,7 +180,7 @@ fn extract_body(node: tree_sitter::Node, source: &str) -> Vec<String> {
         .collect()
 }
 
-fn extract_test_methods(repo: &str, lang_settings: &LangSettings) -> Vec<Method> {
+fn extract_test_methods_rust(repo: &str, lang_settings: &LangSettings) -> Vec<Method> {
     let mut test_methods: Vec<Method> = Vec::new();
     let mut parser = get_parser(&lang_settings.ext);
 
@@ -122,23 +192,15 @@ fn extract_test_methods(repo: &str, lang_settings: &LangSettings) -> Vec<Method>
         {
             if let Ok(file) = File::open(entry.path()) {
                 let mut reader = BufReader::new(file);
-                let mut source_code = String::new();
-
-                // Read file content
-                reader
-                    .read_to_string(&mut source_code)
-                    .expect("Failed to read file");
+                let mut source_code = read_to_string_buffered(reader);
 
                 // Parse the source code with Tree-sitter
-                //let tree = parse_with_tree_sitter(&source_code, lang_settings);
                 let tree = parser.parse(&source_code, None).expect("failed to parse");
                 let root_node = tree.root_node();
 
                 // Traverse syntax tree
                 let mut cursor = root_node.walk();
                 for node in root_node.children(&mut cursor) {
-                    //all methods are showing as false for this is_test_method call
-                    //println!("{:?}", is_test_method(&node, &source_code, lang_settings));
                     if is_test_method(&node, &source_code, lang_settings) {
                         let method_name = extract_method_name(&node, &source_code);
                         test_methods.push(Method {
@@ -154,9 +216,84 @@ fn extract_test_methods(repo: &str, lang_settings: &LangSettings) -> Vec<Method>
     test_methods
 }
 
-fn extract_tested_methods(test_methods: &[Method], logic_methods: &[Method]) -> HashSet<String> {
+fn extract_test_methods_csharp(repo: &str, lang_settings: &LangSettings) -> Vec<Method> {
+    let mut test_methods: Vec<Method> = Vec::new();
+    let mut parser = get_parser(&lang_settings.ext);
+
+    for entry in WalkDir::new(repo).into_iter().filter_map(Result::ok) {
+        if entry
+            .path()
+            .extension()
+            .map_or(false, |ext| *ext == *lang_settings.ext)
+        {
+            if let Ok(file) = File::open(entry.path()) {
+                let mut reader = BufReader::new(file);
+                let mut source_code = read_to_string_buffered(reader);
+
+                // Parse the source code with Tree-sitter
+                let tree = parser.parse(&source_code, None).expect("failed to parse");
+                let root_node = tree.root_node();
+
+                // Traverse syntax tree
+                let mut cursor = root_node.walk();
+
+                find_test_methods_recursively(root_node, &mut test_methods, &source_code, lang_settings);
+            }
+        }
+    }
+    test_methods
+}
+
+fn find_test_methods_recursively(node: tree_sitter::Node, methods: &mut Vec<Method>, source_code: &str, lang_settings: &LangSettings) {
+    let mut cursor = node.walk();
+
+    for child in node.children(&mut cursor) {
+        if child.kind() == "method_declaration" {
+            // Only proceed if it's a valid test method
+            if !is_test_method(&child, source_code, lang_settings) {
+                break;
+            }
+
+            println!("{:?}", source_code);
+            // Create a new cursor specifically for the method's children
+            let mut method_cursor = child.walk();
+            let mut method_name = String::new();
+
+            // Look for the method name, which should be the first child after annotations and return type
+            for method_child in child.children(&mut method_cursor) {
+                if method_child.kind() == "identifier" {
+                    // Extract the method name from the identifier node
+                    method_name = source_code[method_child.start_byte()..method_child.end_byte()]
+                        .trim()
+                        .to_string();
+                    println!("{}", method_name);
+                    break;  // Once we find the method name, we can stop
+                }
+            }
+
+            // Print and store the method name
+            if !method_name.is_empty() {
+                let class_name = if lang_settings.uses_classes {
+                    find_class_name(&node, source_code)
+                } else {
+                    String::new()
+                };
+
+                println!("{:?}", method_name);
+                methods.push(Method {
+                    class_name,
+                    method_name,
+                    body: extract_body(child, &source_code),
+                });
+            }
+        } else {
+            find_test_methods_recursively(child, methods, source_code, lang_settings);
+        }
+    }
+}
+
+fn extract_tested_methods_rust(test_methods: &[Method], logic_methods: &[Method]) -> HashSet<String> {
     let mut tested_methods = HashSet::new();
-    //println!("{:?}", logic_methods[0].method_name);
     let logic_method_names: HashSet<String> = logic_methods
         .iter()
         .map(|m| m.method_name.clone())
@@ -187,6 +324,7 @@ fn extract_tested_methods(test_methods: &[Method], logic_methods: &[Method]) -> 
 
                                 if logic_method_names.contains(&called_function) {
                                     tested_methods.insert(called_function.clone());
+                                    tested_methods.insert(test.class_name.clone());
                                 }
                             }
                         }
@@ -203,6 +341,7 @@ fn extract_tested_methods(test_methods: &[Method], logic_methods: &[Method]) -> 
 
                 if logic_method_names.contains(&called_function) {
                     tested_methods.insert(called_function.clone());
+                    tested_methods.insert(test.class_name.clone());
                 }
             }
         }
@@ -216,11 +355,10 @@ fn is_test_method(
     lang_settings: &LangSettings,
 ) -> bool {
     // Ensure we're checking a function or method definition
-    if node.kind() != "function_item" && node.kind() != "method_definition" {
+    if node.kind() != "function_item" && node.kind() != "method_declaration" {
         return false;
     }
 
-    //println!("made it here");
     // Check preceding siblings (Tree-sitter places attributes before functions)
     let mut _cursor = node.walk();
     let mut sibling = node.prev_sibling();
@@ -230,7 +368,6 @@ fn is_test_method(
 
         // Check if the text matches the test attribute pattern
         if text.contains(&lang_settings.test_pattern) {
-            //println!("{:?}", text);
             return true;
         }
 
@@ -263,29 +400,6 @@ fn extract_method_body(node: &tree_sitter::Node, source_code: &str) -> Vec<Strin
     body_lines
 }
 
-fn path_exists(repo: &String) -> bool {
-    Path::new(repo).exists()
-}
-
-fn create_lang_settings(lang: &Lang) -> LangSettings {
-    match lang {
-        Lang::Csharp => LangSettings {
-            ext: String::from("cs"),
-            uses_classes: true,
-            test_pattern: String::from("[Fact]"),
-            test_method_start: String::from("Public"),
-        },
-        Lang::Rust => LangSettings {
-            ext: String::from("rs"),
-            uses_classes: false,
-            test_pattern: String::from("[test]"),
-            test_method_start: String::from("fn"),
-        },
-        Lang::Python => unimplemented!(),
-        Lang::JS => unimplemented!(),
-        Lang::Undefined => unimplemented!(),
-    }
-}
 
 #[test]
 fn test_create_lang_settings_rust() {
@@ -408,7 +522,7 @@ fn test_extract_logic_methods() {
 
     // Run function on temp directory path
     let lang_settings = create_lang_settings(&Lang::Rust);
-    let methods = extract_logic_methods(
+    let methods = extract_logic_methods_rust(
         &temp_dir.path().to_string_lossy().to_string(),
         &lang_settings,
     );
@@ -450,7 +564,7 @@ fn test_extract_test_methods() {
 
     // Run function on temp directory path
     let lang_settings = create_lang_settings(&Lang::Rust);
-    let methods = extract_test_methods(
+    let methods = extract_test_methods_rust(
         &temp_dir.path().to_string_lossy().to_string(),
         &lang_settings,
     );
@@ -482,7 +596,7 @@ fn test_extract_tested_methods() {
         body: vec!["example_function();".to_string()],
     }];
 
-    let tested_methods = extract_tested_methods(&test_methods, &logic_methods);
+    let tested_methods = extract_tested_methods_rust(&test_methods, &logic_methods);
     let expected: HashSet<String> = ["example_function".to_string()].into_iter().collect();
 
     assert_eq!(tested_methods, expected);

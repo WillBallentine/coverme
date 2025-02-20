@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, path::Path};
 use tree_sitter::Parser;
 use tree_sitter_c_sharp;
 use tree_sitter_javascript;
@@ -72,6 +72,31 @@ pub fn get_parser(lang: &str) -> Parser {
     }
     parser
 }
+
+pub fn path_exists(repo: &String) -> bool {
+    Path::new(repo).exists()
+}
+
+pub fn create_lang_settings(lang: &Lang) -> LangSettings {
+    match lang {
+        Lang::Csharp => LangSettings {
+            ext: String::from("cs"),
+            uses_classes: true,
+            test_pattern: String::from("[Fact]"),
+            test_method_start: String::from("public"),
+        },
+        Lang::Rust => LangSettings {
+            ext: String::from("rs"),
+            uses_classes: false,
+            test_pattern: String::from("[test]"),
+            test_method_start: String::from("fn"),
+        },
+        Lang::Python => unimplemented!(),
+        Lang::JS => unimplemented!(),
+        Lang::Undefined => unimplemented!(),
+    }
+}
+
 
 #[test]
 fn test_normalize_line() {

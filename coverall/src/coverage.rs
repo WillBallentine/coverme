@@ -9,13 +9,20 @@ pub fn generate_method_level_coverage_report(data: AnalysisData, lang_settings: 
     let mut tested_count = 0;
 
     for method in &data.logic_methods {
-        let method_id = if lang_settings.uses_classes {
-            format!("{}.{}", method.class_name, method.method_name)
+        let class_id = if lang_settings.uses_classes {
+            &method.class_name
         } else {
-            method.method_name.clone()
+            &method.method_name
         };
 
-        let is_tested = data.tested_methods.contains(&method.method_name);
+        let method_id = &method.method_name;
+
+        let is_tested = if data.tested_methods.contains(class_id) && data.tested_methods.contains(method_id){
+            true
+        } else {
+            false
+        };
+
 
         if is_tested {
             println!("✅ Method: {}", method_id);
