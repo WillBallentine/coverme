@@ -50,3 +50,30 @@ fn main() {
         }
     }
 }
+
+#[test]
+fn test_unwrap_command() {
+    use clap::Arg;
+    use clap::Command;
+
+    let matches = Command::new("test")
+        .arg(
+            Arg::new("language")
+                .long("language")
+                .required(true)
+                .num_args(1),
+        )
+        .arg(Arg::new("repo").long("repo").required(true).num_args(1))
+        .get_matches_from(vec![
+            "test",
+            "--language",
+            "rust",
+            "--repo",
+            "/path/to/repo",
+        ]);
+
+    let command = unwrap_command(matches);
+
+    assert_eq!(command.repo, "/path/to/repo");
+    assert_eq!(command.lang, utils::Lang::Rust);
+}
