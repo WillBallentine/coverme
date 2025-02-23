@@ -35,7 +35,7 @@ You are also welcome to pull the repo and run via `cargo run -- --repo your_repo
 
 Currently, we are only reporting at the method level. Here is an example output from running coverall on its own repo with only one test written.
 
-![alt text](coverage_example.png)
+![alt text](coverage_example.PNG)
 
 # Contributing and Ideas
 
