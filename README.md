@@ -12,7 +12,7 @@ To install, you can run `cargo install coverme`
 
 You are also welcome to pull the repo and run via `cargo run -- --repo your_repo_path --language language`
 
-## CLI Options
+## CLI Arguments
 
 - --repo <PATH>
   - pass the directory you want to run the analysis on
