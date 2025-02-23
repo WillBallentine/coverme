@@ -43,5 +43,3 @@ Currently, we are only reporting at the method level. Here is an example output 
 Feel free to open an issue on GitHub with any ideas you have on how we can improve coverme. These are all subject to review and approval before being allowed.
 
 If you would like to help build coverme, create a feature branch off of `main` and submit a PR. If the PR meets the standards and goals of this project, I will approve it and merge it in.
-
-testing branch rules
