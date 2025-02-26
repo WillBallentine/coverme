@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use walkdir::WalkDir;
 
@@ -19,19 +19,9 @@ pub fn start_analysis(repo: utils::Command) {
     }
 
     let logic_methods = extract_logic_methods(&repo.repo, &lang_settings);
-    let test_methods = extract_test_methods(&repo.repo, &lang_settings);
-    let tested_methods = extract_tested_methods(&test_methods, &logic_methods);
+    let tested_methods = extract_tested_methods(&logic_methods);
 
-    // println!("{:?}", test_methods);
-    // println!("{:?}", tested_methods);
-
-    let analysis_data = utils::AnalysisData {
-        logic_methods: logic_methods,
-        test_methods: test_methods,
-        tested_methods: tested_methods,
-    };
-
-    coverage::generate_method_level_coverage_report(analysis_data, &lang_settings);
+    coverage::generate_method_level_coverage_report(logic_methods, tested_methods, &lang_settings);
 }
 
 fn extract_logic_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Method> {
@@ -53,8 +43,9 @@ fn extract_logic_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Met
                     let mut cursor = root_node.walk();
 
                     for node in root_node.children(&mut cursor) {
+                        let mut test = false;
                         if is_test_method(&node, &source_code, lang_settings) {
-                            continue;
+                            test = true;
                         }
                         if node.kind() == "function_item" || node.kind() == "method_declaration" {
                             let class_name = if lang_settings.uses_classes {
@@ -70,6 +61,7 @@ fn extract_logic_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Met
                                     class_name,
                                     method_name,
                                     body: extract_body(node, &source_code),
+                                    is_test: test,
                                 });
                             }
                         }
@@ -110,99 +102,58 @@ fn extract_body(node: tree_sitter::Node, source: &str) -> Vec<String> {
         .collect()
 }
 
-fn extract_test_methods(repo: &str, lang_settings: &LangSettings) -> Vec<Method> {
-    let mut test_methods: Vec<Method> = Vec::new();
-    let mut parser = get_parser(&lang_settings.ext);
-
-    for entry in WalkDir::new(repo).into_iter().filter_map(Result::ok) {
-        if entry
-            .path()
-            .extension()
-            .map_or(false, |ext| *ext == *lang_settings.ext)
-        {
-            if let Ok(file) = File::open(entry.path()) {
-                let mut reader = BufReader::new(file);
-                let mut source_code = String::new();
-
-                // Read file content
-                reader
-                    .read_to_string(&mut source_code)
-                    .expect("Failed to read file");
-
-                // Parse the source code with Tree-sitter
-                //let tree = parse_with_tree_sitter(&source_code, lang_settings);
-                let tree = parser.parse(&source_code, None).expect("failed to parse");
-                let root_node = tree.root_node();
-
-                // Traverse syntax tree
-                let mut cursor = root_node.walk();
-                for node in root_node.children(&mut cursor) {
-                    //all methods are showing as false for this is_test_method call
-                    //println!("{:?}", is_test_method(&node, &source_code, lang_settings));
-                    if is_test_method(&node, &source_code, lang_settings) {
-                        let method_name = extract_method_name(&node, &source_code);
-                        test_methods.push(Method {
-                            class_name: "Test".to_string(),
-                            method_name,
-                            body: extract_method_body(&node, &source_code),
-                        });
-                    }
-                }
-            }
-        }
-    }
-    test_methods
-}
-
-fn extract_tested_methods(test_methods: &[Method], logic_methods: &[Method]) -> HashSet<String> {
-    let mut tested_methods = HashSet::new();
+fn extract_tested_methods(logic_methods: &[Method]) -> Vec<String> {
+    let mut tested_methods = Vec::new();
     //println!("{:?}", logic_methods[0].method_name);
     let logic_method_names: HashSet<String> = logic_methods
         .iter()
         .map(|m| m.method_name.clone())
         .collect();
 
-    for test in test_methods {
-        for line in &test.body {
-            let normalized_line = utils::normalize_line(line);
+    for method in logic_methods {
+        if method.is_test == true {
+            for line in &method.body {
+                let normalized_line = utils::normalize_line(line);
 
-            if let Some(start) = normalized_line.find('!') {
-                let macro_name = &normalized_line[..start];
+                if let Some(start) = normalized_line.find('!') {
+                    let macro_name = &normalized_line[..start];
 
-                if ["assert", "assert_eq", "assert_ne", "assert_matches"].contains(&macro_name) {
-                    // Extract arguments inside the macro
-                    if let Some(args_start) = normalized_line.find('(') {
-                        if let Some(args_end) = normalized_line.rfind(')') {
-                            let args = &normalized_line[args_start + 1..args_end];
+                    if ["assert", "assert_eq", "assert_ne", "assert_matches"].contains(&macro_name)
+                    {
+                        // Extract arguments inside the macro
+                        if let Some(args_start) = normalized_line.find('(') {
+                            if let Some(args_end) = normalized_line.rfind(')') {
+                                let args = &normalized_line[args_start + 1..args_end];
 
-                            // Split arguments by comma and check each one for function calls
-                            for arg in args.split(',') {
-                                let called_function = arg
-                                    .trim()
-                                    .split('(')
-                                    .next()
-                                    .unwrap_or("")
-                                    .trim()
-                                    .to_string();
+                                // Split arguments by comma and check each one for function calls
+                                for arg in args.split(',') {
+                                    let called_function = arg
+                                        .trim()
+                                        .split('(')
+                                        .next()
+                                        .unwrap_or("")
+                                        .trim()
+                                        .to_string();
 
-                                if logic_method_names.contains(&called_function) {
-                                    tested_methods.insert(called_function.clone());
+                                    if logic_method_names.contains(&called_function) {
+                                        tested_methods.push(called_function)
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-            if let Some(pos) = normalized_line.find('(') {
-                let before_paren = &normalized_line[..pos].trim();
-                let called_function = if before_paren.contains("=") {
-                    before_paren.split('=').last().unwrap().trim().to_string()
-                } else {
-                    before_paren.to_string()
-                };
+                if let Some(pos) = normalized_line.find('(') {
+                    let before_paren = &normalized_line[..pos].trim();
+                    let called_function = if before_paren.contains("=") {
+                        before_paren.split('=').last().unwrap().trim().to_string()
+                    } else {
+                        before_paren.to_string()
+                    };
 
-                if logic_method_names.contains(&called_function) {
-                    tested_methods.insert(called_function.clone());
+                    if logic_method_names.contains(&called_function) {
+                        tested_methods.push(called_function);
+                    }
                 }
             }
         }
@@ -243,24 +194,6 @@ fn is_test_method(
     }
 
     false
-}
-
-fn extract_method_name(node: &tree_sitter::Node, source_code: &str) -> String {
-    for child in node.children(&mut node.walk()) {
-        if child.kind() == "identifier" {
-            return source_code[child.start_byte()..child.end_byte()].to_string();
-        }
-    }
-    "<unknown>".to_string()
-}
-
-fn extract_method_body(node: &tree_sitter::Node, source_code: &str) -> Vec<String> {
-    let mut body_lines = Vec::new();
-    if let Some(body) = node.child_by_field_name("body") {
-        let body_text = &source_code[body.start_byte()..body.end_byte()];
-        body_lines.extend(body_text.lines().map(String::from));
-    }
-    body_lines
 }
 
 fn path_exists(repo: &String) -> bool {
@@ -316,70 +249,6 @@ fn test_path_exists_non_existing_path() {
 }
 
 #[test]
-fn test_extract_method_body() {
-    let source_code = r#"
-    fn example_function(x: i32) -> i32 {
-        let y = x + 1;
-        println!("Inside function");
-        y
-    }
-"#;
-
-    let expected_body: Vec<String> = vec!["let y = x + 1;", "println!(\"Inside function\");", "y"]
-        .into_iter()
-        .map(|s| s.to_string()) // Ensure it's `String`
-        .collect();
-
-    let mut parser = get_parser("rs");
-
-    let tree = parser
-        .parse(source_code, None)
-        .expect("failed to parse test");
-    let root_node = tree.root_node();
-
-    let mut cursor = root_node.walk();
-    let mut extracted_body = Vec::new();
-
-    for node in root_node.children(&mut cursor) {
-        if node.kind() == "function_item" {
-            let mut raw_body = extract_method_body(&node, source_code);
-
-            // Trim braces `{}` if included
-            if raw_body.first().map(|s| s.trim()) == Some("{") {
-                raw_body.remove(0);
-            }
-            if raw_body.last().map(|s| s.trim()) == Some("}") {
-                raw_body.pop();
-            }
-
-            // **Trim all lines to remove leading/trailing spaces**
-            extracted_body = raw_body.into_iter().map(|s| s.trim().to_string()).collect();
-        }
-    }
-
-    assert_eq!(extracted_body, expected_body);
-}
-
-#[test]
-fn test_extract_method_name() {
-    let source_code = "fn my_function() { println!(\"Hello\"); }";
-    let mut parser = get_parser("rs");
-    let tree = parser
-        .parse(source_code, None)
-        .expect("failed to parse test");
-    let root_node = tree.root_node();
-
-    let mut cursor = root_node.walk();
-    let function_node = root_node
-        .children(&mut cursor)
-        .find(|n| n.kind() == "function_item")
-        .unwrap();
-    let method_name = extract_method_name(&function_node, source_code);
-
-    assert_eq!(method_name, "my_function");
-}
-
-#[test]
 fn test_extract_logic_methods() {
     use std::fs::File;
     use std::io::Write;
@@ -417,75 +286,6 @@ fn test_extract_logic_methods() {
     assert_eq!(methods.len(), 2);
     assert_eq!(methods[0].method_name, "example_function");
     assert_eq!(methods[1].method_name, "another_function");
-}
-
-#[test]
-fn test_extract_test_methods() {
-    use std::fs::File;
-    use std::io::Write;
-    use tempfile::tempdir;
-
-    // Create a temporary directory
-    let temp_dir = tempdir().expect("Failed to create temp directory");
-    let file_path = temp_dir.path().join("example.rs");
-
-    // Write mock Rust code to the temp file
-    let mut file = File::create(&file_path).expect("Failed to create temp file");
-    writeln!(
-        file,
-        r#"
-        #[test]
-        fn example_function() {{
-            let x = 5;
-            println!("Example function: {{}}", x);
-        }}
-
-        #[test]
-        fn another_function() -> i32 {{
-            42
-        }}
-        "#
-    )
-    .expect("Failed to write to temp file");
-
-    // Run function on temp directory path
-    let lang_settings = create_lang_settings(&Lang::Rust);
-    let methods = extract_test_methods(
-        &temp_dir.path().to_string_lossy().to_string(),
-        &lang_settings,
-    );
-
-    // Verify results
-    assert_eq!(methods.len(), 2);
-    assert_eq!(methods[0].method_name, "example_function");
-    assert_eq!(methods[1].method_name, "another_function");
-}
-
-#[test]
-fn test_extract_tested_methods() {
-    let logic_methods = vec![
-        Method {
-            class_name: "".to_string(),
-            method_name: "example_function".to_string(),
-            body: vec![],
-        },
-        Method {
-            class_name: "".to_string(),
-            method_name: "another_function".to_string(),
-            body: vec![],
-        },
-    ];
-
-    let test_methods = vec![Method {
-        class_name: "Test".to_string(),
-        method_name: "test_example_function".to_string(),
-        body: vec!["example_function();".to_string()],
-    }];
-
-    let tested_methods = extract_tested_methods(&test_methods, &logic_methods);
-    let expected: HashSet<String> = ["example_function".to_string()].into_iter().collect();
-
-    assert_eq!(tested_methods, expected);
 }
 
 #[test]
