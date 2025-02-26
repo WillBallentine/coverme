@@ -21,11 +21,12 @@ pub enum Lang {
 }
 
 //eventually I want this to carry data like file name, line number, etc
-#[derive(Debug)]
+#[derive(PartialEq, Debug)]
 pub struct Method {
     pub class_name: String,
     pub method_name: String,
     pub body: Vec<String>,
+    pub is_test: bool,
 }
 
 // pub struct Line {

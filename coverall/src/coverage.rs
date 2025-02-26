@@ -1,27 +1,32 @@
-use crate::utils::{AnalysisData, LangSettings};
+use crate::utils::{LangSettings, Method};
 
 //eventually want to be able to pipe output to file
-pub fn generate_method_level_coverage_report(data: AnalysisData, lang_settings: &LangSettings) {
+pub fn generate_method_level_coverage_report(
+    data: Vec<Method>,
+    tests: Vec<String>,
+    lang_settings: &LangSettings,
+) {
     println!("Test Coverage Report");
     println!("---------------------");
 
-    let total_methods = data.logic_methods.len();
+    let mut total_methods = 0;
     let mut tested_count = 0;
 
-    for method in &data.logic_methods {
+    for method in data {
         let method_id = if lang_settings.uses_classes {
             format!("{}.{}", method.class_name, method.method_name)
         } else {
             method.method_name.clone()
         };
 
-        let is_tested = data.tested_methods.contains(&method.method_name);
-
-        if is_tested {
-            println!("✅ Method: {}", method_id);
-            tested_count += 1;
-        } else {
-            println!("❌ Method: {}", method_id);
+        if !method.is_test {
+            total_methods += 1;
+            if tests.contains(&method.method_name) {
+                println!("✅ Method: {}", method_id);
+                tested_count += 1;
+            } else {
+                println!("❌ Method: {}", method_id);
+            }
         }
     }
 
