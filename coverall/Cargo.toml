@@ -1,6 +1,6 @@
 [package]
 name = "coverme"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 authors = ["Will Ballentine <willh.ballentine@gmail.com>"]
 license = "MIT"

@@ -19,14 +19,15 @@ You are also welcome to pull the repo and run via `cargo run -- --repo your_repo
 - --language <Language>
   - pass the language that the code being tested is written in
     - "rust"
+    - "csharp"
 
 ## Current Language Support
 
 - Rust
+- C#
 
 ### Languages In The Works
 
-- C#
 - Python
 - Go
 - JavaScript
