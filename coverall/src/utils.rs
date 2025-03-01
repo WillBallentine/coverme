@@ -74,6 +74,14 @@ pub fn get_parser(lang: &str) -> Parser {
     parser
 }
 
+pub fn extract_body(node: tree_sitter::Node, source: &str) -> Vec<String> {
+    node.utf8_text(source.as_bytes())
+        .unwrap_or("")
+        .lines()
+        .map(|s| s.to_string())
+        .collect()
+}
+
 #[test]
 fn test_normalize_line() {
     // Test case 1: Line with spaces and tabs
