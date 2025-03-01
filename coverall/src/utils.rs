@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, fs::File, io::BufReader};
 use tree_sitter::Parser;
 use tree_sitter_c_sharp;
 use tree_sitter_javascript;
@@ -72,6 +72,14 @@ pub fn get_parser(lang: &str) -> Parser {
         _ => panic!("Unsupported language: {}", lang),
     }
     parser
+}
+
+pub fn extract_body(node: tree_sitter::Node, source: &str) -> Vec<String> {
+    node.utf8_text(source.as_bytes())
+        .unwrap_or("")
+        .lines()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 #[test]

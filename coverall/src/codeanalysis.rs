@@ -5,7 +5,10 @@ use std::path::Path;
 use walkdir::WalkDir;
 
 use crate::coverage;
-use crate::utils::{self, get_parser, Lang, LangSettings, Method};
+use crate::csharp::{
+    extract_csharp_assert_targets, extract_csharp_method_calls, traverse_c_sharp_nodes,
+};
+use crate::utils::{self, extract_body, get_parser, Lang, LangSettings, Method};
 
 pub fn start_analysis(repo: utils::Command) {
     let lang_settings = create_lang_settings(&repo.lang);
@@ -19,7 +22,7 @@ pub fn start_analysis(repo: utils::Command) {
     }
 
     let logic_methods = extract_logic_methods(&repo.repo, &lang_settings);
-    let tested_methods = extract_tested_methods(&logic_methods);
+    let tested_methods = extract_tested_methods(&logic_methods, &lang_settings);
 
     coverage::generate_method_level_coverage_report(logic_methods, tested_methods, &lang_settings);
 }
@@ -42,27 +45,38 @@ fn extract_logic_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Met
                     let root_node = tree.root_node();
                     let mut cursor = root_node.walk();
 
-                    for node in root_node.children(&mut cursor) {
-                        let mut test = false;
-                        if is_test_method(&node, &source_code, lang_settings) {
-                            test = true;
-                        }
-                        if node.kind() == "function_item" || node.kind() == "method_declaration" {
-                            let class_name = if lang_settings.uses_classes {
-                                find_class_name(&node, &source_code)
-                            } else {
-                                String::new()
-                            };
-                            if let Some(identifier) = node.child_by_field_name("name") {
-                                let method_name = source_code
-                                    [identifier.start_byte()..identifier.end_byte()]
-                                    .to_string();
-                                methods.push(Method {
-                                    class_name,
-                                    method_name,
-                                    body: extract_body(node, &source_code),
-                                    is_test: test,
-                                });
+                    if lang_settings.ext == "cs" {
+                        traverse_c_sharp_nodes(
+                            root_node,
+                            &mut cursor,
+                            &source_code,
+                            lang_settings,
+                            &mut methods,
+                        );
+                    } else {
+                        for node in root_node.children(&mut cursor) {
+                            let mut test = false;
+                            if is_test_method(&node, &source_code, lang_settings) {
+                                test = true;
+                            }
+                            if node.kind() == "function_item" || node.kind() == "method_declaration"
+                            {
+                                let class_name = if lang_settings.uses_classes {
+                                    find_class_name(&node, &source_code)
+                                } else {
+                                    String::new()
+                                };
+                                if let Some(identifier) = node.child_by_field_name("name") {
+                                    let method_name = source_code
+                                        [identifier.start_byte()..identifier.end_byte()]
+                                        .to_string();
+                                    methods.push(Method {
+                                        class_name,
+                                        method_name,
+                                        body: extract_body(node, &source_code),
+                                        is_test: test,
+                                    });
+                                }
                             }
                         }
                     }
@@ -94,15 +108,7 @@ fn find_class_name(node: &tree_sitter::Node, source: &str) -> String {
     })
 }
 
-fn extract_body(node: tree_sitter::Node, source: &str) -> Vec<String> {
-    node.utf8_text(source.as_bytes())
-        .unwrap_or("")
-        .lines()
-        .map(|s| s.to_string())
-        .collect()
-}
-
-fn extract_tested_methods(logic_methods: &[Method]) -> Vec<String> {
+fn extract_tested_methods(logic_methods: &[Method], lang_settings: &LangSettings) -> Vec<String> {
     let mut tested_methods = Vec::new();
     //println!("{:?}", logic_methods[0].method_name);
     let logic_method_names: HashSet<String> = logic_methods
@@ -114,6 +120,22 @@ fn extract_tested_methods(logic_methods: &[Method]) -> Vec<String> {
         if method.is_test == true {
             for line in &method.body {
                 let normalized_line = utils::normalize_line(line);
+
+                if lang_settings.ext == "cs" {
+                    if normalized_line.contains("Assert.") {
+                        extract_csharp_assert_targets(
+                            &line,
+                            &logic_method_names,
+                            &mut tested_methods,
+                        );
+                    } else {
+                        extract_csharp_method_calls(
+                            &line,
+                            &logic_method_names,
+                            &mut tested_methods,
+                        );
+                    }
+                }
 
                 if let Some(start) = normalized_line.find('!') {
                     let macro_name = &normalized_line[..start];
