@@ -12,6 +12,7 @@ pub mod cli;
 pub mod codeanalysis;
 pub mod coverage;
 pub mod csharp;
+pub mod js;
 pub mod utils;
 
 fn run() -> Result<()> {
