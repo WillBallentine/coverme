@@ -8,7 +8,8 @@ use crate::coverage;
 use crate::csharp::{
     extract_csharp_assert_targets, extract_csharp_method_calls, traverse_c_sharp_nodes,
 };
-use crate::utils::{self, extract_body, get_parser, Lang, LangSettings, Method};
+use crate::js::extract_js_tested_methods;
+use crate::utils::{self, extract_body, get_parser, should_skip_dir, Lang, LangSettings, Method};
 
 pub fn start_analysis(repo: utils::Command) {
     let lang_settings = create_lang_settings(&repo.lang);
@@ -22,16 +23,25 @@ pub fn start_analysis(repo: utils::Command) {
     }
 
     let logic_methods = extract_logic_methods(&repo.repo, &lang_settings);
-    let tested_methods = extract_tested_methods(&logic_methods, &lang_settings);
+    let mut _tested_methods = Vec::new();
+    if lang_settings.ext == "js" {
+        _tested_methods = extract_js_tested_methods(&repo.repo, &lang_settings, &logic_methods);
+    } else {
+        _tested_methods = extract_tested_methods(&logic_methods, &lang_settings);
+    }
 
-    coverage::generate_method_level_coverage_report(logic_methods, tested_methods, &lang_settings);
+    coverage::generate_method_level_coverage_report(logic_methods, _tested_methods, &lang_settings);
 }
 
 fn extract_logic_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Method> {
     let mut methods = Vec::new();
     let mut parser = get_parser(&lang_settings.ext);
 
-    for entry in WalkDir::new(repo).into_iter().filter_map(Result::ok) {
+    for entry in WalkDir::new(repo)
+        .into_iter()
+        .filter_entry(|e| !should_skip_dir(e))
+        .filter_map(Result::ok)
+    {
         if entry
             .path()
             .extension()
@@ -59,7 +69,9 @@ fn extract_logic_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Met
                             if is_test_method(&node, &source_code, lang_settings) {
                                 test = true;
                             }
-                            if node.kind() == "function_item" || node.kind() == "method_declaration"
+                            if node.kind() == "function_item"
+                                || node.kind() == "method_declaration"
+                                || node.kind() == "function_declaration"
                             {
                                 let class_name = if lang_settings.uses_classes {
                                     find_class_name(&node, &source_code)
@@ -87,7 +99,7 @@ fn extract_logic_methods(repo: &String, lang_settings: &LangSettings) -> Vec<Met
     methods
 }
 
-fn read_to_string_buffered(reader: BufReader<File>) -> String {
+pub fn read_to_string_buffered(reader: BufReader<File>) -> String {
     let mut source_code = String::new();
     for line in reader.lines().flatten() {
         source_code.push_str(&line);
@@ -110,7 +122,6 @@ fn find_class_name(node: &tree_sitter::Node, source: &str) -> String {
 
 fn extract_tested_methods(logic_methods: &[Method], lang_settings: &LangSettings) -> Vec<String> {
     let mut tested_methods = Vec::new();
-    //println!("{:?}", logic_methods[0].method_name);
     let logic_method_names: HashSet<String> = logic_methods
         .iter()
         .map(|m| m.method_name.clone())
@@ -142,12 +153,10 @@ fn extract_tested_methods(logic_methods: &[Method], lang_settings: &LangSettings
 
                     if ["assert", "assert_eq", "assert_ne", "assert_matches"].contains(&macro_name)
                     {
-                        // Extract arguments inside the macro
                         if let Some(args_start) = normalized_line.find('(') {
                             if let Some(args_end) = normalized_line.rfind(')') {
                                 let args = &normalized_line[args_start + 1..args_end];
 
-                                // Split arguments by comma and check each one for function calls
                                 for arg in args.split(',') {
                                     let called_function = arg
                                         .trim()
@@ -188,26 +197,23 @@ fn is_test_method(
     source_code: &str,
     lang_settings: &LangSettings,
 ) -> bool {
-    // Ensure we're checking a function or method definition
-    if node.kind() != "function_item" && node.kind() != "method_definition" {
+    if node.kind() != "function_item"
+        && node.kind() != "method_definition"
+        && node.kind() != "expression_statement"
+    {
         return false;
     }
 
-    //println!("made it here");
-    // Check preceding siblings (Tree-sitter places attributes before functions)
     let mut _cursor = node.walk();
     let mut sibling = node.prev_sibling();
 
     while let Some(prev) = sibling {
         let text = &source_code[prev.start_byte()..prev.end_byte()].trim();
 
-        // Check if the text matches the test attribute pattern
         if text.contains(&lang_settings.test_pattern) {
-            //println!("{:?}", text);
             return true;
         }
 
-        // If we reach a different statement (not an attribute), stop checking
         if !text.starts_with("#") && !text.starts_with("[") {
             break;
         }
@@ -237,7 +243,12 @@ fn create_lang_settings(lang: &Lang) -> LangSettings {
             test_method_start: String::from("fn"),
         },
         Lang::Python => unimplemented!(),
-        Lang::JS => unimplemented!(),
+        Lang::JS => LangSettings {
+            ext: String::from("js"),
+            uses_classes: true,
+            test_pattern: String::from("test"),
+            test_method_start: String::from("test"),
+        },
         Lang::Undefined => unimplemented!(),
     }
 }

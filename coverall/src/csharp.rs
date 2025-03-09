@@ -95,6 +95,7 @@ fn is_csharp_test_method(
                     || attribute_text.contains("[Test]")
                     || attribute_text.contains("[TestMethod]")
                     || attribute_text.contains("[Theory]")
+                    || attribute_text.contains("[Fact]")
                 {
                     return true;
                 }

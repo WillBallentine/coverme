@@ -20,7 +20,6 @@ pub enum Lang {
     Undefined,
 }
 
-//eventually I want this to carry data like file name, line number, etc
 #[derive(PartialEq, Debug)]
 pub struct Method {
     pub class_name: String,
@@ -28,12 +27,6 @@ pub struct Method {
     pub body: Vec<String>,
     pub is_test: bool,
 }
-
-// pub struct Line {
-//     pub number: i32,
-//     pub file_name: String,
-//     pub tested: bool,
-// }
 
 #[derive(Debug)]
 pub struct AnalysisData {
@@ -80,6 +73,14 @@ pub fn extract_body(node: tree_sitter::Node, source: &str) -> Vec<String> {
         .lines()
         .map(|s| s.to_string())
         .collect()
+}
+
+pub fn should_skip_dir(entry: &walkdir::DirEntry) -> bool {
+    let excluded_dirs: HashSet<&str> = ["node_modules"].iter().cloned().collect();
+
+    let dir_name = entry.file_name().to_string_lossy();
+
+    excluded_dirs.contains(dir_name.as_ref())
 }
 
 #[test]
